@@ -1,0 +1,154 @@
+Dim QCConnection
+
+'Calling funtion to download file from test resource
+Login_To_ALM("alm.xxxxx.com\qcbin\", "xxx", "xxx", "xxx", "xxx", "ABC", "C:\\test", "Download")
+'ABC = Folder under Test Resource in ALM/QC
+'C:\\test = Folder in local system where the files will be downloaded
+
+'Calling function to upload file in test resource
+Login_To_ALM("alm.xxxxx.com\qcbin\", "xxx", "xxx", "xxx", "xxx", "ABC", "C:\\test", "Upload")
+
+'Calling function to create resource and upload file in test resource
+Login_To_ALM("alm.xxxxx.com\qcbin\", "xxx", "xxx", "xxx", "xxx", "ABC", "C:\\test", "Create And Upload")
+
+'Function to Connect and Login to ALM/QC
+Public Function Login_To_ALM(AlmURL, Domain, Project, UserName, Password, Source_Path, Destination_Path, Option_Value)
+    
+    Dim QCserver, QCdomain, QCproject, QCuser, QCpassword
+    
+    QCserver = AlmURL
+    QCdomain = Domain
+    QCproject = Project
+    QCuser = UserName
+    QCpassword = Password
+    
+    If QCserver = "" Or QCdomain = "" Or QCproject = "" Or QCuser = "" Or QCpassword = "" Or Destination_Path = "" Or Source_Path = "" Then
+        MsgBox "Required field not present in Login Form. Macro can't proceed!"
+        Exit Function
+    End If
+    
+    Set QCConnection = CreateObject("TDApiOle80.TDConnection")
+    
+    'Linking to the server
+    QCConnection.InitConnectionEx QCserver
+    
+    'Checking the Connection
+    If Not QCConnection.Connected Then
+     MsgBox "Not able to connect to QCServer!Exiting..."
+     Exit Function
+    End If
+    
+    'Logging in with username and password
+    QCConnection.Login QCuser, QCpassword
+    
+    'Verify if logged successfully
+    If Not QCConnection.LoggedIn Then
+     MsgBox "Not able to Login to QCServer!Exiting..."
+     Exit Function
+    End If
+    
+    'Connectiong to the desired Domain and Project
+    QCConnection.Connect QCdomain, QCproject
+   
+   'Verify if selected project successfully
+    If Not QCConnection.ProjectConnected Then
+     MsgBox "Not able to connect project!Exiting..."
+     Exit Function
+    End If
+    
+    If Option_Value = "Download" Then
+        Call Downloader(Source_Path, Destination_Path)
+    ElseIf Option_Value = "Upload" Then
+        Call Uploader(Source_Path, Destination_Path)
+    ElseIf Option_Value = "Create And Upload" Then
+        Call Resource_Creator(Source_Path, Destination_Path)
+    End If
+End Function
+
+'Function to Download a file from test resources
+Sub Downloader(Source_Path, Destination_Path)
+    Set otaResourceFactory = QCConnection.QCResourceFolderFactory
+    Set otaResourceFilter = otaResourceFactory.Filter
+    otaResourceFilter.Filter("RFO_NAME") = "'" & Source_Path & "'"
+    Set otaResourceList = otaResourceFilter.NewList()
+    For i = 1 To otaResourceList.Count
+        Set oChild = otaResourceList.Item(i).QCResourceFactory.NewList("")
+        For j = 1 To oChild.Count
+            'MsgBox oChild.Item(j).ResourceType
+            oChild.Item(j).DownloadResource Destination_Path, True
+        Next
+    Next
+End Sub
+
+'Function to upload a file to test resource
+Sub Uploader(Source_Path, Destination_Path)
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set folder = fso.GetFolder(Source_Path)
+    Set file = folder.Files
+    
+    Set otaResourceFactory = QCConnection.QCResourceFolderFactory
+    Set otaResourceFilter = otaResourceFactory.Filter
+    otaResourceFilter.Filter("RFO_NAME") = "'" & Destination_Path & "'"
+    Set otaResourceList = otaResourceFilter.NewList()
+    For i = 1 To otaResourceList.Count
+        Set oChild = otaResourceList.Item(i).QCResourceFactory.NewList("")
+        For Each fi In file
+            arr = Split(fi.Name, ".")
+            For j = 1 To oChild.Count
+                If UCase(oChild.Item(j).Name) = UCase(arr(0)) Then
+                    oChild.Item(j).UploadResource Source_Path, True
+                    oChild.Item(j).Post
+                End If
+            Next
+        Next
+    Next
+End Sub
+
+'Function to create a resource and upload file to created resource
+Sub Resource_Creator(Source_Path, Destination_Path)
+    Dim objResourceItem
+    Dim fileName As String
+    Dim resType As String
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set folder = fso.GetFolder(Source_Path)
+    Set file = folder.Files
+    
+    Set otaResourceFactory = QCConnection.QCResourceFolderFactory
+    Set otaResourceFilter = otaResourceFactory.Filter
+    otaResourceFilter.Filter("RFO_NAME") = "'" & Destination_Path & "'"
+    Set otaResourceList = otaResourceFilter.NewList()
+    
+    For i = 1 To otaResourceList.Count
+        Set oChild = otaResourceList.Item(i).QCResourceFactory.NewList("")
+        For Each fi In file
+            arr = Split(fi.Name, ".")
+            For j = 1 To oChild.Count
+                If UCase(oChild.Item(j).Name) = UCase(arr(0)) Then
+                    resourceFound = True
+                    Exit For
+                End If
+            Next
+            If resourceFound = False Then
+                Set objResourceFactory = otaResourceList.Item(i).QCResourceFactory
+                fileName = arr(0)
+                resType = "Data table"
+                Set objResourceItem = objResourceFactory.AddItem("")
+                objResourceItem.ResourceType = resType
+                objResourceItem.Name = fileName
+                objResourceItem.fileName = fileName & ".xlsx"
+                objResourceItem.Post
+                
+                'Check if the resource is added successfully then upload the file
+                Set oChild = otaResourceList.Item(i).QCResourceFactory.NewList("")
+                For j = 1 To oChild.Count
+                    If UCase(oChild.Item(j).Name) = UCase(arr(0)) Then
+                        resourceFound = True
+                        oChild.Item(j).UploadResource Source_Path, True
+                        oChild.Item(j).Post
+                        Exit For
+                    End If
+                Next
+            End If
+        Next
+    Next
+End Sub
